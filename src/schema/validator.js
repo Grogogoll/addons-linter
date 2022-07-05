@@ -140,7 +140,8 @@ function filterErrors(
 }
 
 function getManifestVersionsRange(validatorOptions) {
-  const { minManifestVersion, maxManifestVersion } = validatorOptions;
+  const { minManifestVersion, maxManifestVersion, addonManifestVersion } =
+    validatorOptions;
 
   const minimum =
     minManifestVersion == null
@@ -151,6 +152,8 @@ function getManifestVersionsRange(validatorOptions) {
     maxManifestVersion == null
       ? getDefaultConfigValue('max-manifest-version')
       : maxManifestVersion;
+
+  const addon = addonManifestVersion == null ? minimum : addonManifestVersion;
 
   // Make sure the version range is valid, if it is not:
   // raise an explicit error.
@@ -163,7 +166,7 @@ function getManifestVersionsRange(validatorOptions) {
     );
   }
 
-  return { minimum, maximum };
+  return { minimum, maximum, addon };
 }
 
 export class SchemaValidator {
@@ -409,9 +412,48 @@ export class SchemaValidator {
   }
 
   _compileAddonValidator(validator) {
-    const { minimum, maximum } = this.allowedManifestVersionsRange;
+    const { minimum, addon, maximum } = this.allowedManifestVersionsRange;
 
-    const schemaData = deepPatch(this.schemaObject, {
+    const replacer = (key, value) => {
+      if (Array.isArray(value)) {
+        const patchedValue = value.filter((item) => {
+          let includeItem = true;
+          if (
+            item?.min_manifest_version &&
+            minimum < item.min_manifest_version
+          ) {
+            includeItem =
+              item.min_manifest_version >= minimum &&
+              item.min_manifest_version <= maximum &&
+              item.min_manifest_version <= addon;
+          }
+          if (
+            item?.max_manifest_version &&
+            maximum > item.max_manifest_version
+          ) {
+            includeItem =
+              item.max_manifest_version >= minimum &&
+              item.max_manifest_version <= maximum &&
+              item.max_manifest_version >= addon;
+          }
+
+          return includeItem;
+        });
+        return patchedValue;
+      }
+      return value;
+    };
+
+    // Omit from the schema data all entries that includes a
+    // min/max_manifest_version which is outside of the minimum
+    // and maximum manifest_version currently allowed per validator
+    // config and if they do not apply to the addon manifest_version.
+    //
+    const patchedSchemaObject = JSON.parse(
+      JSON.stringify(this.schemaObject, replacer, 2)
+    );
+
+    const schemaData = deepPatch(patchedSchemaObject, {
       types: {
         ManifestBase: {
           properties: {
@@ -702,7 +744,10 @@ export function getValidator(validatorOptions) {
 }
 
 export const validateAddon = (manifestData, validatorOptions = {}) => {
-  const validator = getValidator(validatorOptions);
+  const validator = getValidator({
+    ...validatorOptions,
+    addonManifestVersion: manifestData?.manifest_version,
+  });
   const isValid = validator.validateAddon(manifestData);
   validateAddon.errors = filterErrors(validator.validateAddon.errors, {
     manifest_version: manifestData.manifest_version,
