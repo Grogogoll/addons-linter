@@ -8,6 +8,7 @@ coverage
 tests/fixtures/**
 tests/**/*.json
 src/schema/imported/index.js
+src/schema/imported-mv*/index.js
 locale/
 tests/fixtures/fr.js
 tests/fixtures/ja.js

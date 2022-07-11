@@ -3,8 +3,9 @@ import ajvMergePatch from 'ajv-merge-patch';
 
 import { getDefaultConfigValue } from 'yargs-options';
 import { deepPatch } from 'schema/deepmerge';
-import schemaObject from 'schema/imported/manifest';
-import themeSchemaObject from 'schema/imported/theme';
+import schemaObject from 'schema/imported-mv2/manifest';
+import schemaObjectMV3 from 'schema/imported-mv3/manifest';
+import themeSchemaObject from 'schema/imported-mv2/theme';
 import messagesSchemaObject from 'schema/messages';
 import {
   DEPRECATED_MANIFEST_PROPERTIES,
@@ -261,7 +262,13 @@ export class SchemaValidator {
   }
 
   get schemaObject() {
-    return this._options?.schemaObject ?? schemaObject;
+    if (this._options?.schemaObject) {
+      return this._options.schemaObject;
+    }
+    if (this.allowedManifestVersionsRange.addon === 3) {
+      return schemaObjectMV3;
+    }
+    return schemaObject;
   }
 
   get themeSchemaObject() {
@@ -412,48 +419,8 @@ export class SchemaValidator {
   }
 
   _compileAddonValidator(validator) {
-    const { minimum, addon, maximum } = this.allowedManifestVersionsRange;
-
-    const replacer = (key, value) => {
-      if (Array.isArray(value)) {
-        const patchedValue = value.filter((item) => {
-          let includeItem = true;
-          if (
-            item?.min_manifest_version &&
-            minimum < item.min_manifest_version
-          ) {
-            includeItem =
-              item.min_manifest_version >= minimum &&
-              item.min_manifest_version <= maximum &&
-              item.min_manifest_version <= addon;
-          }
-          if (
-            item?.max_manifest_version &&
-            maximum > item.max_manifest_version
-          ) {
-            includeItem =
-              item.max_manifest_version >= minimum &&
-              item.max_manifest_version <= maximum &&
-              item.max_manifest_version >= addon;
-          }
-
-          return includeItem;
-        });
-        return patchedValue;
-      }
-      return value;
-    };
-
-    // Omit from the schema data all entries that includes a
-    // min/max_manifest_version which is outside of the minimum
-    // and maximum manifest_version currently allowed per validator
-    // config and if they do not apply to the addon manifest_version.
-    //
-    const patchedSchemaObject = JSON.parse(
-      JSON.stringify(this.schemaObject, replacer, 2)
-    );
-
-    const schemaData = deepPatch(patchedSchemaObject, {
+    const { minimum, maximum } = this.allowedManifestVersionsRange;
+    const schemaData = deepPatch(this.schemaObject, {
       types: {
         ManifestBase: {
           properties: {

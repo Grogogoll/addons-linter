@@ -701,6 +701,68 @@ function loadSchemasFromFile(basePath) {
   return schemas;
 }
 
+export function getJSONReplacer(manifestVersion) {
+  return (key, value) => {
+    // Exclude any anyOf entry for with manifestVersion is outside
+    // of the entry min/max_manifest_version range.
+    if (key === 'anyOf' && Array.isArray(value)) {
+      const patchedValue = value.filter((item) => {
+        let includeItem = true;
+        if (
+          item?.min_manifest_version &&
+          manifestVersion < item.min_manifest_version
+        ) {
+          includeItem = false;
+        }
+        if (
+          item?.max_manifest_version &&
+          manifestVersion > item.max_manifest_version
+        ) {
+          includeItem = false;
+        }
+
+        return includeItem;
+      });
+      return patchedValue;
+    }
+    return value;
+  };
+}
+
+export function filterSchemasForManifestVersion(
+  importedPath,
+  manifestVersionsRange
+) {
+  const [minManifestVersion, maxManifestVersion] = manifestVersionsRange;
+  const fileNames = fs.readdirSync(importedPath);
+  for (
+    let manifestVersion = minManifestVersion;
+    manifestVersion <= maxManifestVersion;
+    manifestVersion++
+  ) {
+    const jsonReplacer = getJSONReplacer(manifestVersion);
+    const srcDirPath = importedPath.endsWith('/')
+      ? importedPath.slice(0, -1)
+      : importedPath;
+    const destDirPathWithVersion = `${srcDirPath}-mv${manifestVersion}`;
+    fs.mkdirSync(destDirPathWithVersion, { recursive: true });
+    for (const fileName of fileNames) {
+      const srcPath = path.join(importedPath, fileName);
+      const destPath = path.join(destDirPathWithVersion, fileName);
+      if (fileName.endsWith('.json')) {
+        const patchedSchemaData = JSON.stringify(
+          JSON.parse(fs.readFileSync(srcPath, { encoding: 'utf-8' })),
+          jsonReplacer,
+          2
+        );
+        fs.writeFileSync(destPath, patchedSchemaData, { encoding: 'utf-8' });
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+}
+
 export function importSchemas(firefoxPath, ourPath, importedPath) {
   const rawSchemas = loadSchemasFromFile(firefoxPath);
   // Somehow we need a different shape for `ourSchemas` (that isn't an array of
@@ -717,6 +779,7 @@ export function importSchemas(firefoxPath, ourPath, importedPath) {
     ourSchemas
   );
   writeSchemasToFile(firefoxPath, importedPath, updatedSchemas);
+  filterSchemasForManifestVersion(importedPath, [2, 3]);
 }
 
 inner.isBrowserSchema = (_path) => {
