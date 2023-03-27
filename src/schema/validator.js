@@ -3,8 +3,9 @@ import ajvMergePatch from 'ajv-merge-patch';
 
 import { getDefaultConfigValue } from 'yargs-options';
 import { deepPatch } from 'schema/deepmerge';
-import schemaObject from 'schema/imported/manifest';
-import themeSchemaObject from 'schema/imported/theme';
+import schemaObject from 'schema/imported-mv2/manifest';
+import schemaObjectMV3 from 'schema/imported-mv3/manifest';
+import themeSchemaObject from 'schema/imported-mv2/theme';
 import messagesSchemaObject from 'schema/messages';
 import {
   DEPRECATED_MANIFEST_PROPERTIES,
@@ -140,7 +141,8 @@ function filterErrors(
 }
 
 function getManifestVersionsRange(validatorOptions) {
-  const { minManifestVersion, maxManifestVersion } = validatorOptions;
+  const { minManifestVersion, maxManifestVersion, addonManifestVersion } =
+    validatorOptions;
 
   const minimum =
     minManifestVersion == null
@@ -151,6 +153,8 @@ function getManifestVersionsRange(validatorOptions) {
     maxManifestVersion == null
       ? getDefaultConfigValue('max-manifest-version')
       : maxManifestVersion;
+
+  const addon = addonManifestVersion == null ? minimum : addonManifestVersion;
 
   // Make sure the version range is valid, if it is not:
   // raise an explicit error.
@@ -163,7 +167,7 @@ function getManifestVersionsRange(validatorOptions) {
     );
   }
 
-  return { minimum, maximum };
+  return { minimum, maximum, addon };
 }
 
 export class SchemaValidator {
@@ -258,7 +262,13 @@ export class SchemaValidator {
   }
 
   get schemaObject() {
-    return this._options?.schemaObject ?? schemaObject;
+    if (this._options?.schemaObject) {
+      return this._options.schemaObject;
+    }
+    if (this.allowedManifestVersionsRange.addon === 3) {
+      return schemaObjectMV3;
+    }
+    return schemaObject;
   }
 
   get themeSchemaObject() {
@@ -410,7 +420,6 @@ export class SchemaValidator {
 
   _compileAddonValidator(validator) {
     const { minimum, maximum } = this.allowedManifestVersionsRange;
-
     const schemaData = deepPatch(this.schemaObject, {
       types: {
         ManifestBase: {
@@ -702,7 +711,10 @@ export function getValidator(validatorOptions) {
 }
 
 export const validateAddon = (manifestData, validatorOptions = {}) => {
-  const validator = getValidator(validatorOptions);
+  const validator = getValidator({
+    ...validatorOptions,
+    addonManifestVersion: manifestData?.manifest_version,
+  });
   const isValid = validator.validateAddon(manifestData);
   validateAddon.errors = filterErrors(validator.validateAddon.errors, {
     manifest_version: manifestData.manifest_version,

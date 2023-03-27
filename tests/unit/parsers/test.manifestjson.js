@@ -1427,6 +1427,39 @@ describe('ManifestJSONParser', () => {
       );
     });
 
+    it('should not add a warning on valid host permission if a permission is invalid', () => {
+      const addonLinter = new Linter({ _: ['bar'] });
+      const json = validManifestJSON({
+        applications: {
+          gecko: {
+            strict_min_version: '56.0',
+          },
+        },
+        permissions: ['SOME_INVALID_PERMISSION', 'http://example.com/*'],
+      });
+      const manifestJSONParser = new ManifestJSONParser(
+        json,
+        addonLinter.collector,
+        {
+          schemaValidatorOptions: {
+            minManifestVersion: 2,
+            maxManifestVersion: 3,
+          },
+        }
+      );
+      expect(addonLinter.collector.errors).toEqual([]);
+      expect(addonLinter.collector.notices).toEqual([]);
+      expect(addonLinter.collector.warnings).toEqual(
+        expect.not.arrayContaining([
+          expect.objectContaining({
+            code: 'MANIFEST_PERMISSIONS',
+            instancePath: '/permissions/1',
+          }),
+        ])
+      );
+      expect(manifestJSONParser.isValid).toEqual(false);
+    });
+
     it('should add a notice on unsupported permissions on android', () => {
       const addonLinter = new Linter({ _: ['bar'] });
       const json = validManifestJSON({
